@@ -3,10 +3,9 @@ name: Build Flet EXE & APK
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # 支持网页手动触发
+  workflow_dispatch:
 
 jobs:
-  # 构建 Windows EXE
   build-windows:
     runs-on: windows-latest
     steps:
@@ -26,7 +25,7 @@ jobs:
 
       - name: Build Windows EXE
         run: |
-          flet build windows --windowed
+          flet build windows --no-console
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
@@ -34,7 +33,6 @@ jobs:
           name: Windows-EXE
           path: build/windows/
 
-  # 构建 Android APK（Flet 官方构建，无 Buildozer 许可问题）
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -47,13 +45,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 安装系统依赖（Java、编译工具、Android 基础环境）
       - name: Install system packages
         run: |
           sudo apt update -qq
           sudo apt install -y openjdk-17-jdk android-sdk build-essential --no-install-recommends
 
-      # 缓存 Android 构建依赖，加速后续打包
       - name: Cache Android build files
         uses: actions/cache@v3
         with:
@@ -69,11 +65,13 @@ jobs:
           pip install flet
 
       - name: Build Android APK
+        env:
+          CI: true
         run: |
-          flet build apk --verbose
+          flet build apk --verbose --output build/Android
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: Android-APK
-          path: build/apk/
+          path: build/Android/
