@@ -1,0 +1,79 @@
+name: Build Flet EXE & APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # 支持网页手动触发
+
+jobs:
+  # 构建 Windows EXE
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flet
+
+      - name: Build Windows EXE
+        run: |
+          flet build windows --windowed
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-EXE
+          path: build/windows/
+
+  # 构建 Android APK（Flet 官方构建，无 Buildozer 许可问题）
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 安装系统依赖（Java、编译工具、Android 基础环境）
+      - name: Install system packages
+        run: |
+          sudo apt update -qq
+          sudo apt install -y openjdk-17-jdk android-sdk build-essential --no-install-recommends
+
+      # 缓存 Android 构建依赖，加速后续打包
+      - name: Cache Android build files
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.flet
+            ~/.gradle
+          key: ${{ runner.os }}-flet-android-${{ github.sha }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flet
+
+      - name: Build Android APK
+        run: |
+          flet build apk --verbose
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-APK
+          path: build/apk/
