@@ -1,39 +1,113 @@
-name: Build Flet APK & Windows EXE
+name: Build Flet All Platforms
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-  workflow_dispatch: # 支持手动点击构建
+  workflow_dispatch: # 支持手动点击运行
+  tags:              # 打v*标签时触发Release
+    - 'v*'
 
 env:
-  PYTHON_VERSION: "3.11"
-  FLUTTER_VERSION: "3.24.5"
-  FLET_NO_RICH: 1
+  UV_PYTHON: 3.12
+  PYTHONUTF8: 1
+  FLET_CLI_NO_RICH_OUTPUT: 1
 
 jobs:
-  # 并行两个构建任务：APK / Windows EXE
-  build-multi:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false # 一个失败不终止另一个
+      fail-fast: false # 一个平台失败，其他继续构建
       matrix:
-        config:
-          - name: apk
-            runs-on: ubuntu-latest
-            build_cmd: flet build apk
-            artifact_dir: build/apk
-            artifact_name: android-apk
+        include:
+          # 桌面三端
           - name: windows
-            runs-on: windows-latest
-            build_cmd: flet build windows
-            artifact_dir: build/windows
-            artifact_name: windows-exe
+            runner: windows-latest
+            build_cmd: flet build windows --name MyFletApp
+            artifact_path: build/windows
+            needs_linux_deps: false
+          - name: macos
+            runner: macos-latest
+            build_cmd: flet build macos --name MyFletApp --bundle-id com.yourapp.id
+            artifact_path: build/macos
+            needs_linux_deps: false
+          - name: linux
+            runner: ubuntu-latest
+            build_cmd: flet build linux --name MyFletApp
+            artifact_path: build/linux
+            needs_linux_deps: true
+          # 安卓
+          - name: apk
+            runner: ubuntu-latest
+            build_cmd: flet build apk --name MyFletApp --bundle-id com.yourapp.id
+            artifact_path: build/apk
+            needs_linux_deps: false
+          # 网页
+          - name: web
+            runner: ubuntu-latest
+            build_cmd: flet build web
+            artifact_path: build/web
+            needs_linux_deps: false
 
-    runs-on: ${{ matrix.config.runs-on }}
     steps:
-      - name: 拉取代码
+      - name: Checkout代码
         uses: actions/checkout@v4
 
+      # Linux桌面额外系统依赖
+      - name: 安装Linux编译依赖
+        if: matrix.needs_linux_deps
+        run: |
+          sudo apt update
+          sudo apt install -y libgtk-3-dev ninja-build libblkid-dev liblzma-dev
+
+      # UV极速安装Python依赖
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v6
+      - name: 安装Flet全量依赖
+        run: uv pip install -r requirements.txt --system
+
+      # 执行打包
+      - name: Flet编译
+        run: ${{ matrix.build_cmd }}
+
+      # 上传构建产物（仓库Actions页面可下载）
+      - name: 上传制品
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-artifact
+          path: ${{ matrix.artifact_path }}
+          retention-days: 30
+
+  # 打Tag后自动创建Release并附所有安装包
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载全部构建文件
+        uses: actions/download-artifact@v4
+
+      - name: 压缩打包文件
+        run: |
+          ls -la
+          zip -r Windows.zip windows-artifact
+          tar -zcvf macOS.tar.gz macos-artifact
+          tar -zcvf Linux.tar.gz linux-artifact
+          mv apk-artifact/*.apk App.apk
+          zip -r Web静态包.zip web-artifact
+
+      - name: 创建GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            Windows.zip
+            macOS.tar.gz
+            Linux.tar.gz
+            App.apk
+            Web静态包.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # ========== 通用Python环境 ==========
       - name: 安装Python
         uses: actions/setup-python@v5
