@@ -1,39 +1,82 @@
-name: Build Flet EXE & APK
-
+name: Build Flet APK & Windows EXE
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # 支持手动点击构建
+
+env:
+  PYTHON_VERSION: "3.11"
+  FLUTTER_VERSION: "3.24.5"
+  FLET_NO_RICH: 1
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  # 并行两个构建任务：APK / Windows EXE
+  build-multi:
+    strategy:
+      fail-fast: false # 一个失败不终止另一个
+      matrix:
+        config:
+          - name: apk
+            runs-on: ubuntu-latest
+            build_cmd: flet build apk
+            artifact_dir: build/apk
+            artifact_name: android-apk
+          - name: windows
+            runs-on: windows-latest
+            build_cmd: flet build windows
+            artifact_dir: build/windows
+            artifact_name: windows-exe
+
+    runs-on: ${{ matrix.config.runs-on }}
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      # ========== 通用Python环境 ==========
+      - name: 安装Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      - name: Install dependencies
+      - name: 安装Flet CLI
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller flet
+          pip install --upgrade pip
+          pip install flet flet-cli
 
-      # 改用 pyinstaller 打包，稳定兼容
-      - name: Build Windows EXE
+      # ========== Flutter 全平台安装 ==========
+      - name: 配置Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # ========== APK额外依赖（仅Ubuntu执行） ==========
+      - name: 安装Android构建依赖
+        if: matrix.config.name == 'apk'
         run: |
-          pyinstaller --onefile --windowed main.py
+          # JDK17
+          sudo apt update
+          sudo apt install -y openjdk-17-jdk
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          # Android许可
+          flutter config --no-analytics
+          flutter doctor --android-licenses -y
 
-      - name: Upload Windows EXE
+      # ========== 执行打包 ==========
+      - name: 构建 ${{ matrix.config.name }}
+        run: ${{ matrix.config.build_cmd }} --verbose
+
+      # ========== 上传制品到Actions缓存 ==========
+      - name: 上传构建文件
         uses: actions/upload-artifact@v4
         with:
-          name: Windows-EXE
-          path: dist/
-
+          name: ${{ matrix.config.artifact_name }}
+          path: ${{ matrix.config.artifact_dir }}
+          retention-days: 30
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 45
