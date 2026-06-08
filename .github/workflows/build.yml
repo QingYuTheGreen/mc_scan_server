@@ -2,10 +2,9 @@ name: Build Flet All Platforms
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
-  workflow_dispatch: # 支持手动点击运行
-  tags:              # 打v*标签时触发Release
-    - 'v*'
+  workflow_dispatch:
 
 env:
   UV_PYTHON: 3.12
@@ -17,32 +16,19 @@ jobs:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false # 一个平台失败，其他继续构建
+      fail-fast: false
       matrix:
         include:
-          # 桌面三端
           - name: windows
             runner: windows-latest
-            build_cmd: flet build windows --name MyFletApp
+            build_cmd: flet build windows --name MyFletApp --no-console
             artifact_path: build/windows
-            needs_linux_deps: false
-          - name: macos
-            runner: macos-latest
-            build_cmd: flet build macos --name MyFletApp --bundle-id com.yourapp.id
-            artifact_path: build/macos
             needs_linux_deps: false
           - name: linux
             runner: ubuntu-latest
             build_cmd: flet build linux --name MyFletApp
             artifact_path: build/linux
             needs_linux_deps: true
-          # 安卓
-          - name: apk
-            runner: ubuntu-latest
-            build_cmd: flet build apk --name MyFletApp --bundle-id com.yourapp.id
-            artifact_path: build/apk
-            needs_linux_deps: false
-          # 网页
           - name: web
             runner: ubuntu-latest
             build_cmd: flet build web
@@ -50,145 +36,50 @@ jobs:
             needs_linux_deps: false
 
     steps:
-      - name: Checkout代码
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # Linux桌面额外系统依赖
-      - name: 安装Linux编译依赖
+      - name: Install Linux build deps
         if: matrix.needs_linux_deps
         run: |
           sudo apt update
           sudo apt install -y libgtk-3-dev ninja-build libblkid-dev liblzma-dev
 
-      # UV极速安装Python依赖
       - name: Setup UV
         uses: astral-sh/setup-uv@v6
-      - name: 安装Flet全量依赖
+      - name: Install dependencies
         run: uv pip install -r requirements.txt --system
 
-      # 执行打包
-      - name: Flet编译
+      - name: Flet Build
         run: ${{ matrix.build_cmd }}
 
-      # 上传构建产物（仓库Actions页面可下载）
-      - name: 上传制品
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}-artifact
+          name: ${{ matrix.name }}-build
           path: ${{ matrix.artifact_path }}
-          retention-days: 30
 
-  # 打Tag后自动创建Release并附所有安装包
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - name: 下载全部构建文件
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
 
-      - name: 压缩打包文件
+      - name: Package files
         run: |
-          ls -la
-          zip -r Windows.zip windows-artifact
-          tar -zcvf macOS.tar.gz macos-artifact
-          tar -zcvf Linux.tar.gz linux-artifact
-          mv apk-artifact/*.apk App.apk
-          zip -r Web静态包.zip web-artifact
+          zip -r Windows.zip windows-build
+          tar -zcvf Linux.tar.gz linux-build
+          zip -r Web.zip web-build
 
-      - name: 创建GitHub Release
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             Windows.zip
-            macOS.tar.gz
             Linux.tar.gz
-            App.apk
-            Web静态包.zip
+            Web.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # ========== 通用Python环境 ==========
-      - name: 安装Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-
-      - name: 安装Flet CLI
-        run: |
-          pip install --upgrade pip
-          pip install flet flet-cli
-
-      # ========== Flutter 全平台安装 ==========
-      - name: 配置Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
-      # ========== APK额外依赖（仅Ubuntu执行） ==========
-      - name: 安装Android构建依赖
-        if: matrix.config.name == 'apk'
-        run: |
-          # JDK17
-          sudo apt update
-          sudo apt install -y openjdk-17-jdk
-          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
-          # Android许可
-          flutter config --no-analytics
-          flutter doctor --android-licenses -y
-
-      # ========== 执行打包 ==========
-      - name: 构建 ${{ matrix.config.name }}
-        run: ${{ matrix.config.build_cmd }} --verbose
-
-      # ========== 上传制品到Actions缓存 ==========
-      - name: 上传构建文件
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.config.artifact_name }}
-          path: ${{ matrix.config.artifact_dir }}
-          retention-days: 30
-  build-android:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install system packages
-        run: |
-          sudo apt update -qq
-          sudo apt install -y openjdk-17-jdk android-sdk build-essential yes --no-install-recommends
-
-      - name: Cache Android build files
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.flet
-            ~/.gradle
-          key: ${{ runner.os }}-flet-android-${{ github.sha }}
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install flet
-
-      # 关键：用 yes 命令自动确认所有交互提示
-      - name: Build Android APK
-        run: |
-          yes | flet build apk --verbose --output build/Android
-
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Android-APK
-          path: build/Android/
