@@ -24,7 +24,7 @@ jobs:
           # Windows
           - name: windows
             runner: windows-latest
-            build_cmd: flet build windows . --output build/windows -v
+            build_cmd: flet build windows . --output build/windows -v --yes
             artifact_path: build/windows
             needs_linux_deps: false
             needs_android_deps: false
@@ -33,7 +33,7 @@ jobs:
           # Linux
           - name: linux
             runner: ubuntu-latest
-            build_cmd: flet build linux . --output build/linux -v
+            build_cmd: flet build linux . --output build/linux -v --yes
             artifact_path: build/linux
             needs_linux_deps: true
             needs_android_deps: false
@@ -42,7 +42,7 @@ jobs:
           # Android APK
           - name: android-apk
             runner: ubuntu-latest
-            build_cmd: flet build apk . --output build/apk -v
+            build_cmd: flet build apk . --output build/apk -v --yes
             artifact_path: build/apk
             needs_linux_deps: false
             needs_android_deps: true
@@ -51,7 +51,7 @@ jobs:
           # macOS ARM64 (Apple Silicon)
           - name: macos-arm64
             runner: macos-latest
-            build_cmd: flet build macos . --output build/macos -v --arch arm64
+            build_cmd: flet build macos . --output build/macos -v --arch arm64 --yes
             artifact_path: build/macos
             needs_linux_deps: false
             needs_android_deps: false
@@ -60,7 +60,7 @@ jobs:
           # macOS x86_64 (Intel)
           - name: macos-x86_64
             runner: macos-13
-            build_cmd: flet build macos . --output build/macos -v --arch x86_64
+            build_cmd: flet build macos . --output build/macos -v --arch x86_64 --yes
             artifact_path: build/macos
             needs_linux_deps: false
             needs_android_deps: false
@@ -69,7 +69,7 @@ jobs:
           # Web
           - name: web
             runner: ubuntu-latest
-            build_cmd: flet build web . --output build/web -v
+            build_cmd: flet build web . --output build/web -v --yes
             artifact_path: build/web
             needs_linux_deps: false
             needs_android_deps: false
