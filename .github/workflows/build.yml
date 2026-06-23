@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 env:
-  UV_PYTHON: 3.12
   PYTHONUTF8: 1
   FLET_CLI_NO_RICH_OUTPUT: 1
   APP_NAME: mc_scan_server
@@ -25,49 +24,65 @@ jobs:
           # Windows
           - name: windows
             runner: windows-latest
-            build_cmd: flet build windows --name mc_scan_server --no-console
+            build_cmd: flet build windows . --output build/windows -v
             artifact_path: build/windows
             needs_linux_deps: false
+            needs_android_deps: false
+            needs_macos_deps: false
           
           # Linux
           - name: linux
             runner: ubuntu-latest
-            build_cmd: flet build linux --name mc_scan_server
+            build_cmd: flet build linux . --output build/linux -v
             artifact_path: build/linux
             needs_linux_deps: true
+            needs_android_deps: false
+            needs_macos_deps: false
           
           # Android APK
           - name: android-apk
             runner: ubuntu-latest
-            build_cmd: flet build apk --name mc_scan_server --org com.qingyu.mcscan
+            build_cmd: flet build apk . --output build/apk -v
             artifact_path: build/apk
             needs_linux_deps: false
             needs_android_deps: true
+            needs_macos_deps: false
           
           # macOS ARM64 (Apple Silicon)
           - name: macos-arm64
             runner: macos-latest
-            build_cmd: flet build macos --name mc_scan_server --bundle-id com.qingyu.mcscan --arch arm64
+            build_cmd: flet build macos . --output build/macos -v --arch arm64
             artifact_path: build/macos
+            needs_linux_deps: false
+            needs_android_deps: false
             needs_macos_deps: true
           
           # macOS x86_64 (Intel)
           - name: macos-x86_64
             runner: macos-13
-            build_cmd: flet build macos --name mc_scan_server --bundle-id com.qingyu.mcscan --arch x86_64
+            build_cmd: flet build macos . --output build/macos -v --arch x86_64
             artifact_path: build/macos
+            needs_linux_deps: false
+            needs_android_deps: false
             needs_macos_deps: true
           
           # Web
           - name: web
             runner: ubuntu-latest
-            build_cmd: flet build web
+            build_cmd: flet build web . --output build/web -v
             artifact_path: build/web
             needs_linux_deps: false
+            needs_android_deps: false
+            needs_macos_deps: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install Linux build deps
         if: matrix.needs_linux_deps
@@ -82,22 +97,20 @@ jobs:
         if: matrix.needs_android_deps
         run: |
           sudo apt update
-          sudo apt install -y ninja-build
-          # Java 17 是 Android 构建必需的
-          sudo apt install -y openjdk-17-jdk
+          sudo apt install -y ninja-build openjdk-17-jdk
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
 
       - name: Install macOS build deps
         if: matrix.needs_macos_deps
         run: |
           brew update
-          brew install ffmpeg cocoapods ninja
+          brew install ffmpeg ninja
+          sudo gem install cocoapods
 
-      - name: Setup UV
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install dependencies
-        run: uv pip install -r requirements.txt --system
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Flet Build
         run: ${{ matrix.build_cmd }}
