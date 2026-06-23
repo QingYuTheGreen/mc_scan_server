@@ -1,4 +1,5 @@
 name: Build Flet All Platforms
+
 on:
   push:
     branches: [main]
@@ -10,6 +11,8 @@ env:
   UV_PYTHON: 3.12
   PYTHONUTF8: 1
   FLET_CLI_NO_RICH_OUTPUT: 1
+  APP_NAME: mc_scan_server
+  APP_DIR: .
 
 jobs:
   build:
@@ -19,16 +22,43 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows
           - name: windows
             runner: windows-latest
-            build_cmd: flet build windows --name MyFletApp --no-console
+            build_cmd: flet build windows --name mc_scan_server --no-console
             artifact_path: build/windows
             needs_linux_deps: false
+          
+          # Linux
           - name: linux
             runner: ubuntu-latest
-            build_cmd: flet build linux --name MyFletApp
+            build_cmd: flet build linux --name mc_scan_server
             artifact_path: build/linux
             needs_linux_deps: true
+          
+          # Android APK
+          - name: android-apk
+            runner: ubuntu-latest
+            build_cmd: flet build apk --name mc_scan_server --org com.qingyu.mcscan
+            artifact_path: build/apk
+            needs_linux_deps: false
+            needs_android_deps: true
+          
+          # macOS ARM64 (Apple Silicon)
+          - name: macos-arm64
+            runner: macos-latest
+            build_cmd: flet build macos --name mc_scan_server --bundle-id com.qingyu.mcscan --arch arm64
+            artifact_path: build/macos
+            needs_macos_deps: true
+          
+          # macOS x86_64 (Intel)
+          - name: macos-x86_64
+            runner: macos-13
+            build_cmd: flet build macos --name mc_scan_server --bundle-id com.qingyu.mcscan --arch x86_64
+            artifact_path: build/macos
+            needs_macos_deps: true
+          
+          # Web
           - name: web
             runner: ubuntu-latest
             build_cmd: flet build web
@@ -43,10 +73,29 @@ jobs:
         if: matrix.needs_linux_deps
         run: |
           sudo apt update
-          sudo apt install -y libgtk-3-dev ninja-build libblkid-dev liblzma-dev
+          sudo apt install -y libgtk-3-dev ninja-build libblkid-dev liblzma-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
+
+      - name: Install Android build deps
+        if: matrix.needs_android_deps
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build
+          # Java 17 是 Android 构建必需的
+          sudo apt install -y openjdk-17-jdk
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+
+      - name: Install macOS build deps
+        if: matrix.needs_macos_deps
+        run: |
+          brew update
+          brew install ffmpeg cocoapods ninja
 
       - name: Setup UV
         uses: astral-sh/setup-uv@v6
+
       - name: Install dependencies
         run: uv pip install -r requirements.txt --system
 
@@ -58,6 +107,7 @@ jobs:
         with:
           name: ${{ matrix.name }}-build
           path: ${{ matrix.artifact_path }}
+          retention-days: 7
 
   release:
     needs: build
@@ -71,6 +121,9 @@ jobs:
         run: |
           zip -r Windows.zip windows-build
           tar -zcvf Linux.tar.gz linux-build
+          zip -r Android-APK.zip android-apk-build
+          zip -r macOS-ARM64.zip macos-arm64-build
+          zip -r macOS-x86_64.zip macos-x86_64-build
           zip -r Web.zip web-build
 
       - name: Create Release
@@ -79,6 +132,9 @@ jobs:
           files: |
             Windows.zip
             Linux.tar.gz
+            Android-APK.zip
+            macOS-ARM64.zip
+            macOS-x86_64.zip
             Web.zip
           generate_release_notes: true
         env:
